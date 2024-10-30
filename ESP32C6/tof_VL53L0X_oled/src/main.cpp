@@ -3,6 +3,10 @@ range measurements with the VL53L0X and display on a SSD1306 OLED.
 
 The range readings are in units of mm. */
 
+// LIB Adafruit_VL53L0X by Adafruit (https://github.com/adafruit/Adafruit_VL53L0X)
+// LIB Adafruit_SSD1306 by Adafruit (https://github.com/adafruit/Adafruit_SSD1306)
+
+#include <Arduino.h>
 #include <Wire.h>
 #include "Adafruit_VL53L0X.h"
 #include <Adafruit_GFX.h>

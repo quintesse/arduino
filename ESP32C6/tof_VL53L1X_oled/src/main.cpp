@@ -1,18 +1,17 @@
 /* This example shows how to take
 range measurements with the VL53L0X and display on a SSD1306 OLED.
-The range readings are in units of mm.
-*/
+
+The range readings are in units of mm. */
 
 // LIB VL53L1X by Pololu (https://github.com/pololu/vl53l1x-arduino)
 // LIB Adafruit_SSD1306 by Adafruit (https://github.com/adafruit/Adafruit_SSD1306)
-// LIB RadioLib by Jan Gromes (https://github.com/jgromes/RadioLib)
 
+#include <Arduino.h>
 #include <math.h>
 #include <Wire.h>
 #include <VL53L1X.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
-#include <RadioLib.h>
 #include <Preferences.h>
 
 Adafruit_SSD1306 display = Adafruit_SSD1306();
@@ -34,37 +33,6 @@ const int DSLEEP_WAKEUP_PIN = D0;
 
 VL53L1X::RangingData measure;
 int tries = 5;
-
-// LoRaWan
-#define RADIOLIB_LORAWAN_JOIN_EUI  0x0000000000000000
-#define RADIOLIB_LORAWAN_DEV_EUI   0x70B3D57ED006C093
-#define RADIOLIB_LORAWAN_APP_KEY   0xE8, 0x2F, 0x96, 0xBA, 0xCB, 0x75, 0xC1, 0x53, 0x1A, 0x63, 0xE9, 0x24, 0x13, 0x77, 0x1D, 0x53
-#define RADIOLIB_LORAWAN_NWK_KEY   0x23, 0xC0, 0x46, 0x90, 0xF9, 0x36, 0x1D, 0x3E, 0x5F, 0xE4, 0x9C, 0x40, 0x4D, 0x09, 0xF5, 0x5D
-
-#define LORAWAN_UPLINK_USER_PORT  2
-
-// regional choices: EU868, US915, AU915, AS923, IN865, KR920, CN780, CN500
-const LoRaWANBand_t Region = EU868;
-const uint8_t subBand = 0; // For US915 and AU915
-
-// SX1262 pin order: Module(NSS/CS, DIO1, RESET, BUSY);
-SX1262 radio = new Module(41, 39, 42, 40);
-
-// create the LoRaWAN node
-LoRaWANNode node(&radio, &Region, subBand);
-
-uint64_t joinEUI =   RADIOLIB_LORAWAN_JOIN_EUI;
-uint64_t devEUI  =   RADIOLIB_LORAWAN_DEV_EUI;
-uint8_t appKey[] = { RADIOLIB_LORAWAN_APP_KEY };
-uint8_t nwkKey[] = { RADIOLIB_LORAWAN_NWK_KEY };
-
-const unsigned int JOIN_MAX_RETRIES = 3;
-const unsigned int JOIN_RETRY_DELAY = 15000;
-
-const unsigned int SEND_MAX_RETRIES = 3;
-const unsigned int SEND_RETRY_DELAY = 5000;
-
-const unsigned int PAYLOAD_VERSION = 1;
 
 // Non-volatile variables
 uint32_t bootCount;
@@ -182,79 +150,13 @@ void showRange(uint16_t range) {
 void updateRange(uint16_t range) {
   // check if the value actually changed enough
   if (lastSharedRange == 0xffff || abs(lastSharedRange - range) >= RANGE_SIGNIFICANT_DELTA) {
-    if (joinNetwork()) {
-      if (sendRangeWithRetries(range)) {
-        lastSharedRange = range;
-        preferences.putUInt("lastrange", lastSharedRange);
-      }
-    }
+    // TODO send the updated range to some external service
+    Serial.println(F("Sending value ... (NYI!)"));
+    lastSharedRange = range;
+    preferences.putUInt("lastrange", lastSharedRange);
   } else {
-    Serial.println(F("INF: Value too similar, not sending"));
+    Serial.println(F("Value too similar, not sending"));
   }
-}
-
-bool sendRangeWithRetries(uint16_t range) {
-  for (int i=0; i < SEND_MAX_RETRIES; i++) {
-    if (i > 0) {
-      Serial.println(F("ERR: Failed to send range value, retrying soon..."));
-      delay(SEND_RETRY_DELAY);
-    }
-    if (sendRange(range)) break;
-  }
-  Serial.println(F("ERR: All attemps to send range value failed, aborting"));
-}
-
-bool sendRange(uint16_t range) {
-  Serial.println(F("INF: Attempting to send range value..."));
-
-  uint8_t uplinkPayload[3];
-  uplinkPayload[0] = PAYLOAD_VERSION;
-  uplinkPayload[1] = highByte(range);
-  uplinkPayload[2] = lowByte(range);
-
-  int16_t state = node.sendReceive(uplinkPayload, sizeof(uplinkPayload), LORAWAN_UPLINK_USER_PORT);
-  if (state!= RADIOLIB_ERR_NONE) {
-    Serial.print(F("ERR: Error sending range value: #"));
-    Serial.println(state);
-    return false;
-  }
-
-  Serial.println(F("INF: Range value sent successfully"));
-  return true;
-}
-
-bool joinNetwork() {
-  Serial.println(F("INF: Initialise the LoRaWan radio..."));
-  int16_t state = radio.begin();
-  if (state!= RADIOLIB_ERR_NONE) {
-    Serial.println(F("ERR: Failed to initialise the LoRaWan radio"));    
-    return false;
-  }
-
-  // SX1262 rf switch order: setRfSwitchPins(rxEn, txEn);
-//  radio.setRfSwitchPins(38, RADIOLIB_NC);
-
-  // Setup the OTAA session information
-  node.beginOTAA(joinEUI, devEUI, nwkKey, appKey);
-  Serial.println(F("INF: Joining the LoRaWAN Network..."));
-
-  state = node.activateOTAA();
-  if (state != RADIOLIB_LORAWAN_NEW_SESSION){
-    Serial.print(F("ERR: Failed to join LoRaWan network: #"));
-    Serial.println(state);
-    return false;
-  }
-
-  // Disable the ADR algorithm (on by default which is preferable)
-  //node.setADR(false);
-
-  // Set a fixed datarate
-//  node.setDatarate(LORAWAN_UPLINK_DATA_RATE);
-
-  // Manages uplink intervals to the TTN Fair Use Policy
-//  node.setDutyCycle(false);
-  
-  Serial.println(F("INF: LoRaWan network joined successfully"));
 }
 
 void blink(int cnt, int time) {

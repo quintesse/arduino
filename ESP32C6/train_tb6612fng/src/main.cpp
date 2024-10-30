@@ -1,7 +1,14 @@
 /* This code manages the motor of a simple toy train */
 
+#include <Arduino.h>
 #include <Wire.h>
 #include "Motor.h"
+
+// Function declarations
+void blink(int cnt, int time);
+void ledOn();
+void ledOff();
+void goToDeepSleep();
 
 #define AIN1 D3
 #define AIN2 D7
@@ -12,7 +19,7 @@
 #define STBY D4
 
 const int offsetA = -1;
-const int offsetB = -1;
+const int offsetB = 1;
 
 Motor motor = Motor(AIN1, AIN2, PWMA, offsetA, STBY);
 Motor leds = Motor(BIN1, BIN2, PWMB, offsetB, STBY);

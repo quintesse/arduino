@@ -10,9 +10,12 @@ class Motor
     Motor(int In1pin, int In2pin, int PWMpin, int offset, int STBYpin);      
 
     // Drive in direction given by sign, at speed given by magnitude of the parameter.
-    void drive(int speed);  
-	
-	  //Stops motor by setting both input pins high
+    void drive(int speed);
+
+    // Returns current motor speed
+    int speed();
+
+    // Stops motor by setting both input pins high
     void brake(); 
 	
 	  //set the chip to standby mode.  The drive function takes it out of standby 
@@ -20,7 +23,7 @@ class Motor
 	
   private:
     //variables for the 2 inputs, PWM input, Offset value, and the Standby pin
-  	int In1, In2, PWM, Offset, Standby;	
+  	int In1, In2, PWM, Offset, Standby, Speed;
 };
 
 #endif

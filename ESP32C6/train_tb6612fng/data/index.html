@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IoT Toy Train Controller</title>
+    <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css">
+</head>
+<body>
+    <h1>Train Controller</h1>
+    <div id='speed' hx-get="/speed" hx-trigger="load"></div>
+    <button style="font-size:24px" hx-get="/speed?action=slower" hx-target="previous div"><i class='fa-solid fa-caret-left' style='font-size:24px;color:red'></i> Slower</button>
+    <button style="font-size:24px" hx-get="/speed?action=stop" hx-target="previous div">Stop <i class='fa-regular fa-hand'></i></button>
+    <button style="font-size:24px" hx-get="/speed?action=faster" hx-target="previous div">Faster <i class='fa-solid fa-caret-right' style='font-size:24px;color:green'></i></button>
+    <div id='lights' hx-get="/lights" hx-trigger="load"></div>
+    <button style="font-size:24px" hx-get="/lights?action=full" hx-target="previous div">Full</button>
+    <button style="font-size:24px" hx-get="/lights?action=low" hx-target="previous div">Low</button>
+    <button style="font-size:24px" hx-get="/lights?action=off" hx-target="previous div">Off</button>
+    <div id='sensor' hx-get="/sensor" hx-trigger="load"></div>
+    <button style="font-size:24px" hx-get="/sensor" hx-target="previous div">Update</button>
+</body>
+</html>

@@ -16,7 +16,6 @@
 #include <Arduino.h>
 #include <Preferences.h>
 #include <RadioLib.h>
-#include <VL53L1X.h>
 #include <Wire.h>
 #include <math.h>
 #include <secrets.h>
@@ -45,10 +44,24 @@ Preferences preferences;
 Adafruit_SSD1306 display = Adafruit_SSD1306();
 bool displayAvailable = false;
 
-VL53L1X lox;
-VL53L1X::RangingData measure;
+//#define USE_VL53L1X
+#define USE_SEN0590
+#if defined(USE_VL53L1X)
 
-const uint16_t INVALID_RANGE = 0xffff;
+#include <VL53L1X_DSensor.h>
+VL53L1X_DSensor dsensor;
+
+#elif defined(USE_SEN0590)
+
+#include <SEN0590_DSensor.h>
+SEN0590_DSensor dsensor;
+
+#else
+
+#error "No distance sensor defined!"
+
+#endif
+
 const uint16_t RANGE_SIGNIFICANT_DELTA = 50;  // 5cm
 
 const unsigned long DSLEEP_MAX_AWAKE_MS = 15000;
@@ -95,7 +108,7 @@ void setup() {
     // Read non-volatile variables
     preferences.begin("depthsensor", false);
     bootCount = preferences.getUInt("bootcount", 0);
-    lastSharedRange = preferences.getUInt("lastrange", INVALID_RANGE);
+    lastSharedRange = preferences.getUInt("lastrange", IDistanceSensor::INVALID_RANGE);
 
     // Update boot count
     bootCount++;
@@ -123,8 +136,6 @@ void setup() {
     }
     showAppInfo();
     initToFSensor();
-
-    measure.range_status = VL53L1X::RangeStatus::None;  // Set to invalid value
 }
 
 void loop() {
@@ -133,12 +144,10 @@ void loop() {
     if (tries > 0) {
         tries--;
         uint16_t range = readRange();
-        if (range != INVALID_RANGE) {
-            showRange(range);
+        showRange(range);
+        if (range != IDistanceSensor::INVALID_RANGE) {
             updateRange(range);
             goToDeepSleep();
-        } else {
-            showRange(INVALID_RANGE);
         }
     } else {
         // We were not able to get a good reading, going to sleep anyway
@@ -150,7 +159,7 @@ void loop() {
 void showAppInfo() {
     Serial.println(F("Depth Sensor v0.2"));
     Serial.print(F("Last depth: "));
-    Serial.println(lastSharedRange);
+    Serial.println((int)round(lastSharedRange / 10.0));
     Serial.print(F("Boot count: "));
     Serial.println(bootCount);
     if (displayAvailable) {
@@ -169,19 +178,12 @@ void showAppInfo() {
 }
 
 uint16_t readRange() {
-    lox.readSingle(true);
-    measure = lox.ranging_data;
-    // check for phase failures and invalid values
-    if (measure.range_status == VL53L1X::RangeStatus::RangeValid) {
-        return measure.range_mm;
-    } else {
-        return INVALID_RANGE;
-    }
+    return dsensor.read();
 }
 
 void showRange(uint16_t range) {
-    if (range != INVALID_RANGE) {
-        Serial.print(F("Measured range: "));
+    if (range != IDistanceSensor::INVALID_RANGE) {
+        Serial.print(F("Measured range (mm): "));
         Serial.println(range);
     } else {
         Serial.print(F("Measured range: NO DATA"));
@@ -191,8 +193,8 @@ void showRange(uint16_t range) {
         display.setTextSize(2);
         display.clearDisplay();
         display.setCursor(0, 0);
-        if (range != INVALID_RANGE) {
-            display.print(range);
+        if (range != IDistanceSensor::INVALID_RANGE) {
+            display.print((int)round(range / 10.0));
             display.print("cm");
             display.display();
             delay(3000);
@@ -206,7 +208,7 @@ void showRange(uint16_t range) {
 
 void updateRange(uint16_t range) {
     // check if the value actually changed enough
-    if (lastSharedRange == INVALID_RANGE || abs(lastSharedRange - range) >= RANGE_SIGNIFICANT_DELTA) {
+    if (lastSharedRange == IDistanceSensor::INVALID_RANGE || abs(lastSharedRange - range) >= RANGE_SIGNIFICANT_DELTA) {
         if (joinNetwork()) {
             if (sendRangeWithRetries(range)) {
                 lastSharedRange = range;
@@ -344,9 +346,7 @@ void disableDisplay() {
 void initToFSensor() {
     // Initialize VL53L1X time-of-flight sensor
     Serial.println(F("Time-of-flight sensor setup..."));
-    enableToFSensor();
-    delay(50);
-    if (!lox.init()) {
+    if (!dsensor.init()) {
         Serial.println(F("Failed to detect/init VL53L1X"));
         if (displayAvailable) {
             display.clearDisplay();
@@ -356,27 +356,11 @@ void initToFSensor() {
         }
         goToDeepSleep();
     }
-    lox.setDistanceMode(VL53L1X::Long);
-    lox.setMeasurementTimingBudget(75000);
-}
-
-void enableToFSensor() {
-    // Pin D7 should be connected to the sensor's XSHUT pin
-    pinMode(D7, OUTPUT);
-    // Pulling the pin high will enable the sensor
-    digitalWrite(D7, HIGH);
-}
-
-void disableToFSensor() {
-    // Pin D7 should be connected to the sensor's XSHUT pin
-    pinMode(D7, OUTPUT);
-    // Pulling the pin low will put the sensor in sleep mode
-    digitalWrite(D7, LOW);
 }
 
 void goToDeepSleep() {
     disableDisplay();
-    disableToFSensor();
+    dsensor.disable();
     // Configure deep sleep wake-up timer
     esp_sleep_enable_timer_wakeup(DSLEEP_TIME_MS * 1000);
     // Configure deep sleep wake-up button

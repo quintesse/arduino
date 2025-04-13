@@ -23,6 +23,7 @@
 
 // Function declarations
 void showAppInfo();
+uint16_t readRange();
 void showRange(uint16_t range);
 void updateRange(uint16_t range);
 bool sendRangeWithRetries(uint16_t range);
@@ -39,14 +40,16 @@ void enableToFSensor();
 void disableToFSensor();
 void goToDeepSleep();
 
+Preferences preferences;
+
 Adafruit_SSD1306 display = Adafruit_SSD1306();
 bool displayAvailable = false;
 
 VL53L1X lox;
+VL53L1X::RangingData measure;
 
-Preferences preferences;
-
-const uint16_t RANGE_SIGNIFICANT_DELTA = 5;
+const uint16_t INVALID_RANGE = 0xffff;
+const uint16_t RANGE_SIGNIFICANT_DELTA = 50; // 5cm
 
 const unsigned long DSLEEP_MAX_AWAKE_MS = 15000;
 const unsigned long DSLEEP_TIME_MS = 15000;
@@ -56,7 +59,6 @@ const int DSLEEP_WAKEUP_PIN = D0;
  #error("Height incorrect, please fix Adafruit_SSD1306.h!");
 #endif
 
-VL53L1X::RangingData measure;
 int tries = 5;
 
 // LoRaWan
@@ -93,7 +95,7 @@ void setup() {
   // Read non-volatile variables
   preferences.begin("depthsensor", false); 
   bootCount = preferences.getUInt("bootcount", 0);
-  lastSharedRange = preferences.getUInt("lastrange", 0xffff);
+  lastSharedRange = preferences.getUInt("lastrange", INVALID_RANGE);
 
   // Update boot count
   bootCount++;
@@ -132,16 +134,13 @@ void loop() {
   Serial.println(tries);
   if (tries > 0) {
     tries--;
-    lox.readSingle(true);
-    measure = lox.ranging_data;
-    // check for phase failures and invalid values
-    if (measure.range_status == VL53L1X::RangeStatus::RangeValid) {
-      uint16_t range = round(measure.range_mm / 10.0);
+    uint16_t range = readRange();
+    if (range != INVALID_RANGE) {
       showRange(range);
       updateRange(range);
       goToDeepSleep();
     } else {
-      showRange(0xffff);
+      showRange(INVALID_RANGE);
     }
   } else {
     // We were not able to get a good reading, going to sleep anyway
@@ -171,27 +170,36 @@ void showAppInfo() {
   }
 }
 
+uint16_t readRange() {
+  lox.readSingle(true);
+  measure = lox.ranging_data;
+  // check for phase failures and invalid values
+  if (measure.range_status == VL53L1X::RangeStatus::RangeValid) {
+    return measure.range_mm;
+  } else {
+    return INVALID_RANGE;
+  }
+}
+
 void showRange(uint16_t range) {
-  if (range != 0xffff) {
+  if (range != INVALID_RANGE) {
     Serial.print(F("Measured range: "));
     Serial.println(range);
   } else {
-    Serial.print(F("Measured range: NO DATA #"));
-    Serial.println(measure.range_status);
+    Serial.print(F("Measured range: NO DATA"));
   }
   if (displayAvailable) {
     display.setTextColor(WHITE);
     display.setTextSize(2);
     display.clearDisplay();
     display.setCursor(0,0);
-    if (range != 0xffff) {
+    if (range != INVALID_RANGE) {
       display.print(range);
       display.print("cm");
       display.display();
       delay(3000);
     } else {
-      display.print("no data #");
-      display.print(measure.range_status);
+      display.print("no data");
       display.display();
       delay(500);
     }
@@ -200,7 +208,7 @@ void showRange(uint16_t range) {
 
 void updateRange(uint16_t range) {
   // check if the value actually changed enough
-  if (lastSharedRange == 0xffff || abs(lastSharedRange - range) >= RANGE_SIGNIFICANT_DELTA) {
+  if (lastSharedRange == INVALID_RANGE || abs(lastSharedRange - range) >= RANGE_SIGNIFICANT_DELTA) {
     if (joinNetwork()) {
       if (sendRangeWithRetries(range)) {
         lastSharedRange = range;

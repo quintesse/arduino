@@ -25,9 +25,10 @@ void showAppInfo();
 uint16_t readRange();
 void showRange(uint16_t range);
 void showSubtext(const __FlashStringHelper *msg);
-void updateRange(uint16_t range);
-bool sendRangeWithRetries(uint16_t range);
-bool sendRange(uint16_t range);
+void updatePayload(uint16_t range, uint16_t voltage);
+bool shouldSendPayload(uint16_t range, uint16_t voltage);
+bool sendRangeWithRetries(uint16_t range, uint16_t voltage);
+bool sendPayload(uint16_t range, uint16_t voltage);
 bool joinNetwork();
 void blink(int cnt, int time);
 void ledOn();
@@ -68,6 +69,8 @@ SEN0590_DSensor dsensor;
 #endif
 
 const uint16_t RANGE_SIGNIFICANT_DELTA = 50;  // 5cm
+const uint16_t VOLTAGE_SIGNIFICANT_DELTA = 100; // 100mV
+const uint16_t BOOTCOUNT_SIGNIFICANT_DELTA = 30; // About 30 days
 
 const unsigned long DSLEEP_MAX_AWAKE_MS = 15000;
 const unsigned long DSLEEP_TIME_MS = 24 * 60 * 60 * 1000; // Wake up every 24h
@@ -111,12 +114,16 @@ const unsigned int PAYLOAD_VERSION = 2;
 // Non-volatile variables
 uint32_t bootCount;
 uint16_t lastSharedRange;
+uint16_t lastSharedVoltage;
+uint16_t lastBootCount;
 
 void setup() {
     // Read non-volatile variables
     preferences.begin("depthsensor", false);
     bootCount = preferences.getUInt("bootcount", 0);
     lastSharedRange = preferences.getUInt("lastrange", IDistanceSensor::INVALID_RANGE);
+    lastSharedVoltage = preferences.getUInt("lastvoltage", 0);
+    lastBootCount = preferences.getUInt("lastbootcount", bootCount);
 
     // Update boot count
     bootCount++;
@@ -157,7 +164,7 @@ void loop() {
         uint16_t range = readRange();
         showRange(range);
         if (range != IDistanceSensor::INVALID_RANGE) {
-            updateRange(range);
+            updatePayload(range, batterymv);
             goToDeepSleep();
         }
     } else {
@@ -170,7 +177,7 @@ void loop() {
 
 void showAppInfo() {
     Serial.println(APP_NAME);
-    Serial.print(F("Last depth: "));
+    Serial.print(F("Last depth(mm): "));
     Serial.println((int)round(lastSharedRange / 10.0));
     Serial.print(F("Boot count: "));
     Serial.println(bootCount);
@@ -182,7 +189,7 @@ if (displayAvailable) {
         display.clearDisplay();
         display.setCursor(0, 0);
         display.println(APP_NAME);
-        display.print(F("Last depth: "));
+        display.print(F("Last depth(mm): "));
         display.println(lastSharedRange);
         display.print(F("Boot count: "));
         display.println(bootCount);
@@ -234,15 +241,19 @@ void showSubtext(const __FlashStringHelper *msg) {
     }
 }
 
-void updateRange(uint16_t range) {
+void updatePayload(uint16_t range, uint16_t voltage) {
     // check if the value actually changed enough
-    if (lastSharedRange == IDistanceSensor::INVALID_RANGE || abs(lastSharedRange - range) >= RANGE_SIGNIFICANT_DELTA) {
+    if (shouldSendPayload(range, voltage)) {
         showSubtext(F("joining..."));
         if (joinNetwork()) {
             showSubtext(F("sending..."));
-            if (sendRangeWithRetries(range)) {
+            if (sendRangeWithRetries(range, voltage)) {
                 lastSharedRange = range;
+                lastSharedVoltage = voltage;
+                lastBootCount = bootCount;
                 preferences.putUInt("lastrange", lastSharedRange);
+                preferences.putUInt("lastvoltage", lastSharedVoltage);
+                preferences.putUInt("lastbootcount", lastBootCount);
                 showSubtext(F("send ok"));
             } else {
                 showSubtext(F("send fail"));
@@ -251,47 +262,66 @@ void updateRange(uint16_t range) {
             showSubtext(F("join fail"));
         }
     } else {
-        Serial.println(F("INF: Value too similar, not sending"));
         showSubtext(F("no change"));
         blink(2, 300);
     }
 }
 
-bool sendRangeWithRetries(uint16_t range) {
+bool shouldSendPayload(uint16_t range, uint16_t voltage) {
+    // Check if the range value actually changed enough
+    if (lastSharedRange == IDistanceSensor::INVALID_RANGE || abs(lastSharedRange - range) >= RANGE_SIGNIFICANT_DELTA) {
+        Serial.println(F("INF: Range changed significantly, sending"));
+        return true;
+    }
+    // Do the same for the voltage
+    if (lastSharedVoltage == 0 || abs(lastSharedVoltage - voltage) >= VOLTAGE_SIGNIFICANT_DELTA) {
+        Serial.println(F("INF: Voltage changed significantly, sending"));
+        return true;
+    }
+    // If we have booted more than a certain amount of times since the last send, send anyway
+    if (bootCount - lastBootCount >= BOOTCOUNT_SIGNIFICANT_DELTA) {
+        Serial.println(F("INF: Much time has passed since last update, sending"));
+        return true;
+    }
+    Serial.println(F("INF: No significant changes, not sending"));
+    return false;
+}
+
+bool sendRangeWithRetries(uint16_t range, uint16_t voltage) {
     for (int i = 0; i < SEND_MAX_RETRIES; i++) {
         if (i > 0) {
-            Serial.println(F("ERR: Failed to send range value, retrying soon..."));
+            Serial.println(F("ERR: Failed to send payload, retrying soon..."));
             blink(2, 150);
             delay(SEND_RETRY_DELAY);
         }
-        if (sendRange(range)) {
+        if (sendPayload(range, voltage)) {
             blink(3, 300);
             return true;
         };
     }
-    Serial.println(F("ERR: All attemps to send range value failed, aborting"));
+    Serial.println(F("ERR: All attemps to send payload failed, aborting"));
     blink(4, 150);
     return false;
 }
 
-bool sendRange(uint16_t range) {
-    Serial.println(F("INF: Attempting to send range value..."));
+bool sendPayload(uint16_t range, uint16_t voltage) {
+    Serial.println(F("INF: Attempting to send payload..."));
 
     uint8_t uplinkPayload[5];
     uplinkPayload[0] = PAYLOAD_VERSION;
     uplinkPayload[1] = highByte(range);
     uplinkPayload[2] = lowByte(range);
-    uplinkPayload[3] = highByte(batterymv);
-    uplinkPayload[4] = lowByte(batterymv);
+    uplinkPayload[3] = highByte(voltage);
+    uplinkPayload[4] = lowByte(voltage);
 
     int16_t state = node.sendReceive(uplinkPayload, sizeof(uplinkPayload), LORAWAN_UPLINK_USER_PORT);
     if (state != RADIOLIB_ERR_NONE) {
-        Serial.print(F("ERR: Error sending range value: #"));
+        Serial.print(F("ERR: Error sending payload: #"));
         Serial.println(state);
         return false;
     }
 
-    Serial.println(F("INF: Range value sent successfully"));
+    Serial.println(F("INF: Payload sent successfully"));
     return true;
 }
 

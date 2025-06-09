@@ -22,6 +22,7 @@
 
 // Function declarations
 void showAppInfo();
+uint16_t readRangeWithRetries();
 uint16_t readRange();
 void showRange(uint16_t range);
 void showSubtext(const __FlashStringHelper *msg);
@@ -83,8 +84,6 @@ uint16_t batterymv = 0;
 #error ("Height incorrect, please fix Adafruit_SSD1306.h!");
 #endif
 
-int tries = 5;
-
 // LoRaWan
 #define LORAWAN_UPLINK_USER_PORT 2
 
@@ -102,6 +101,9 @@ uint64_t joinEUI = RADIOLIB_LORAWAN_JOIN_EUI;
 uint64_t devEUI = RADIOLIB_LORAWAN_DEV_EUI;
 uint8_t appKey[] = {RADIOLIB_LORAWAN_APP_KEY};
 uint8_t nwkKey[] = {RADIOLIB_LORAWAN_NWK_KEY};
+
+const unsigned int READ_MAX_RETRIES = 5;
+const unsigned int READ_RETRY_DELAY = 500;
 
 const unsigned int JOIN_MAX_RETRIES = 3;
 const unsigned int JOIN_RETRY_DELAY = 15000;
@@ -154,25 +156,21 @@ void setup() {
     }
     showAppInfo();
     initToFSensor();
-}
 
-void loop() {
-    Serial.print(F("Tries: "));
-    Serial.println(tries);
-    if (tries > 0) {
-        tries--;
-        uint16_t range = readRange();
-        showRange(range);
-        if (range != IDistanceSensor::INVALID_RANGE) {
-            updatePayload(range, batterymv);
-            goToDeepSleep();
-        }
+    uint16_t range = readRangeWithRetries();
+    showRange(range);
+    if (range != IDistanceSensor::INVALID_RANGE) {
+        updatePayload(range, batterymv);
+        goToDeepSleep();
     } else {
         // We were not able to get a good reading, going to sleep anyway
         blink(3, 150);
-        goToDeepSleep();
     }
-    delay(100);
+    goToDeepSleep();
+}
+
+void loop() {
+    goToDeepSleep();
 }
 
 void showAppInfo() {
@@ -183,7 +181,7 @@ void showAppInfo() {
     Serial.println(bootCount);
     Serial.print(F("Battery(mV):"));
     Serial.println(batterymv);
-if (displayAvailable) {
+    if (displayAvailable) {
         display.setTextColor(WHITE);
         display.setTextSize(1);
         display.clearDisplay();
@@ -198,6 +196,19 @@ if (displayAvailable) {
         display.display();
         delay(3000);
     }
+}
+
+uint16_t readRangeWithRetries() {
+    Serial.print(F("Read range tries: "));
+    Serial.println(READ_MAX_RETRIES);
+    for (int i = 0; i < READ_MAX_RETRIES; i++) {
+        uint16_t range = readRange();
+        if (range != IDistanceSensor::INVALID_RANGE) {
+            return range;
+        }
+        delay(READ_RETRY_DELAY);
+    }
+    return IDistanceSensor::INVALID_RANGE;
 }
 
 uint16_t readRange() {

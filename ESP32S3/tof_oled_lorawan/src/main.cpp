@@ -73,7 +73,7 @@ const uint16_t VOLTAGE_SIGNIFICANT_DELTA = 100; // 100mV
 const uint16_t BOOTCOUNT_SIGNIFICANT_DELTA = 30; // About 30 days
 
 const unsigned long DSLEEP_MAX_AWAKE_MS = 15000;
-const unsigned long DSLEEP_TIME_MS = 24 * 60 * 60 * 1000; // Wake up every 24h
+const unsigned long DSLEEP_TIME_MS = 24LL * 60LL * 60LL * 1000LL; // Wake up every 24h
 const int DSLEEP_WAKEUP_PIN = 21;  // User button on the Wio-SX1262 shield
 
 const int VMON_PIN = A0;  // Pin we're measuring battery voltage on
@@ -456,7 +456,7 @@ void goToDeepSleep() {
     disableDisplay();
     dsensor.disable();
     // Configure deep sleep wake-up timer
-    esp_sleep_enable_timer_wakeup(DSLEEP_TIME_MS * 1000);
+    esp_sleep_enable_timer_wakeup(DSLEEP_TIME_MS * 1000LL);
     // Configure deep sleep wake-up button
     esp_sleep_enable_ext1_wakeup(1ULL << DSLEEP_WAKEUP_PIN, ESP_EXT1_WAKEUP_ANY_LOW);
     // Store non-volatile variables

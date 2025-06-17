@@ -44,7 +44,7 @@ void disableToFSensor();
 uint16_t measureBatteryVoltage(int pin);
 void goToDeepSleep();
 
-const __FlashStringHelper *APP_NAME = F("Depth Sensor v0.4");
+const __FlashStringHelper *APP_NAME = F("Depth Sensor v0.5");
 
 Preferences preferences;
 
@@ -111,10 +111,10 @@ const unsigned int JOIN_RETRY_DELAY = 15000;
 const unsigned int SEND_MAX_RETRIES = 3;
 const unsigned int SEND_RETRY_DELAY = 5000;
 
-const unsigned int PAYLOAD_VERSION = 2;
+const unsigned int PAYLOAD_VERSION = 3;
 
 // Non-volatile variables
-uint32_t bootCount;
+uint16_t bootCount;
 uint16_t lastSharedRange;
 uint16_t lastSharedVoltage;
 uint16_t lastBootCount;
@@ -318,12 +318,14 @@ bool sendRangeWithRetries(uint16_t range, uint16_t voltage) {
 bool sendPayload(uint16_t range, uint16_t voltage) {
     Serial.println(F("INF: Attempting to send payload..."));
 
-    uint8_t uplinkPayload[5];
+    uint8_t uplinkPayload[7];
     uplinkPayload[0] = PAYLOAD_VERSION;
     uplinkPayload[1] = highByte(range);
     uplinkPayload[2] = lowByte(range);
     uplinkPayload[3] = highByte(voltage);
     uplinkPayload[4] = lowByte(voltage);
+    uplinkPayload[3] = highByte(bootCount);
+    uplinkPayload[4] = lowByte(bootCount);
 
     int16_t state = node.sendReceive(uplinkPayload, sizeof(uplinkPayload), LORAWAN_UPLINK_USER_PORT);
     if (state != RADIOLIB_ERR_NONE) {

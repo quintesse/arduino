@@ -75,6 +75,7 @@ const uint16_t BOOTCOUNT_SIGNIFICANT_DELTA = 30; // About 30 days
 
 const unsigned long DSLEEP_MAX_AWAKE_MS = 15000;
 const unsigned long DSLEEP_TIME_MS = 24LL * 60LL * 60LL * 1000LL; // Wake up every 24h
+//const unsigned long DSLEEP_TIME_MS = 10LL * 1000LL; // Wake up every 10s
 const int DSLEEP_WAKEUP_PIN = 21;  // User button on the Wio-SX1262 shield
 
 const int VMON_PIN = A0;  // Pin we're measuring battery voltage on
@@ -134,10 +135,8 @@ void setup() {
     esp_reset_reason_t reset_reason = esp_reset_reason();
     esp_sleep_wakeup_cause_t wakeup_cause = esp_sleep_get_wakeup_cause();
 
-    blink(2, 300);
-
     Serial.begin(115200);
-    delay(200);
+    blink(2, 300);
     Serial.println(F("===================="));
     Serial.println(F("Starting..."));
     Serial.print(F("Reset reason: "));
@@ -216,11 +215,11 @@ uint16_t readRange() {
 }
 
 void showRange(uint16_t range) {
+    Serial.print(F("Measured range (mm): "));
     if (range != IDistanceSensor::INVALID_RANGE) {
-        Serial.print(F("Measured range (mm): "));
         Serial.println(range);
     } else {
-        Serial.print(F("Measured range: NO DATA"));
+        Serial.println(F("NO DATA"));
     }
     if (displayAvailable) {
         display.setTextColor(WHITE);
@@ -468,6 +467,7 @@ uint16_t measureBatteryVoltage(int pin) {
 void goToDeepSleep() {
     disableDisplay();
     dsensor.disable();
+    radio.sleep();
     // Configure deep sleep wake-up timer
     esp_sleep_enable_timer_wakeup(DSLEEP_TIME_MS * 1000LL);
     // Configure deep sleep wake-up button

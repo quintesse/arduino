@@ -324,8 +324,8 @@ bool sendPayload(uint16_t range, uint16_t voltage) {
     uplinkPayload[2] = lowByte(range);
     uplinkPayload[3] = highByte(voltage);
     uplinkPayload[4] = lowByte(voltage);
-    uplinkPayload[3] = highByte(bootCount);
-    uplinkPayload[4] = lowByte(bootCount);
+    uplinkPayload[5] = highByte(bootCount);
+    uplinkPayload[6] = lowByte(bootCount);
 
     int16_t state = node.sendReceive(uplinkPayload, sizeof(uplinkPayload), LORAWAN_UPLINK_USER_PORT);
     if (state != RADIOLIB_ERR_NONE) {

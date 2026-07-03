@@ -1,88 +1,99 @@
 #include <Arduino.h>
 #include <HardwareSerial.h>
+#include "low_power.h"
 
-// Hardware Pin Definitions
-#define SENSOR_PWR_PIN  PB9   // Managed 3.3V power line to the sensor
+// 1. Hardware Pin Configurations
+HardwareSerial sensorSerial(PC0, PC1);
 
-// Explicitly instantiate a dedicated Hardware Serial instance for the sensor
-// Constructor syntax: HardwareSerial ObjectName(RX_PIN, TX_PIN);
-// We pass NC (Not Connected) for TX since the sensor only transmits to us.
-HardwareSerial sensorSerial(PC0, NC);
+// 2. Telemetry Timing & Sensitivity Settings
+const uint32_t TESTING_INTERVAL_MS = 15000;      // Wake interval in milliseconds
+const float SIGNIFICANT_CHANGE_THRESHOLD = 0.05;   // 5 centimeters threshold
 
-void setup() {
-    // Initialize Debug Console (UART2 via PA2/PA3 to your ST-Link V3)
-    Serial.begin(115200);
-    delay(2000);
-    Serial.println("--- Milestone 2: Custom Hardware Serial Sensor Test ---");
+// 3. Volatile baseline (Wiped on battery disconnect or physical RST press)
+float lastSentDistance = -1.0; 
 
-    // Configure the physical PB9 pin as our power switch
-    pinMode(SENSOR_PWR_PIN, OUTPUT);
-    digitalWrite(SENSOR_PWR_PIN, LOW); // Keep it off initially
-}
-
-void loop() {
-    Serial.println("\n--- Starting Telemetry Cycle ---");
-    
-    // 1. Power on the sensor via PB9
-    digitalWrite(SENSOR_PWR_PIN, HIGH);
-    Serial.println("Sensor Power Rails: Energized (PB9 HIGH)");
-    
-    // 2. Settle Delay (Let the sensor boot up)
-    delay(300); 
-    
-    // 3. Open our custom hardware serial instance at 9600 baud
-    sensorSerial.begin(9600);
-    
-    // Flush out any power-on transition noise in the buffer
-    while(sensorSerial.available()) { sensorSerial.read(); }
-    delay(50); 
-    
-    uint16_t distance = 0;
-    bool validRead = false;
-    uint8_t buffer[4] = {0};
+float readSensorDistance() {
+    uint8_t buffer[4];
+    uint8_t bufferIndex = 0;
     uint32_t startTime = millis();
 
-    // 4. Telemetry Capture Loop (1-second timeout safety)
-    while ((millis() - startTime < 1000) && !validRead) {
-        if (sensorSerial.available() >= 4) {
-            if (sensorSerial.read() == 0xFF) {
-                buffer[0] = 0xFF;
-                buffer[1] = sensorSerial.read();
-                buffer[2] = sensorSerial.read();
-                buffer[3] = sensorSerial.read();
+    // Clear anything that arrived while waiting
+    while(sensorSerial.available()) sensorSerial.read();
 
-                // Compute Checksum Verification
-                uint8_t checksum = (buffer[0] + buffer[1] + buffer[2]) & 0xFF;
-                if (checksum == buffer[3]) {
-                    distance = (buffer[1] << 8) + buffer[2];
-                    validRead = true;
+    while (millis() - startTime < 1000) {
+        if (sensorSerial.available()) {
+            uint8_t incomingByte = sensorSerial.read();
+            if (bufferIndex == 0 && incomingByte != 0xFF) continue;
+            buffer[bufferIndex++] = incomingByte;
+
+            if (bufferIndex == 4) {
+                uint8_t calculatedSum = (buffer[0] + buffer[1] + buffer[2]) & 0xFF;
+                if (calculatedSum == buffer[3]) {
+                    uint16_t distanceMm = (buffer[1] << 8) | buffer[2];
+                    return distanceMm / 1000.0; // Conversion to meters
                 }
+                bufferIndex = 0;
             }
         }
     }
+    return -1.0; // Return error code on timeout
+}
 
-    // 5. Sensor Kill-Switch (Shut down hardware engine and drop line power)
-    sensorSerial.end(); 
-    digitalWrite(SENSOR_PWR_PIN, LOW);
-    Serial.println("Sensor Power Rails: Isolated (PB9 LOW)");
+void fakeLoraTransmit(float distance) {
+    Serial.println("\n>>>>> [RADIO] UPLINK TRANSMISSION IN PROGRESS... <<<<<");
+    Serial.print(">>>>> Payload Data: "); 
+    Serial.print(distance, 3); 
+    Serial.println(" m");
+    goToSleep(500U);
+    Serial.println(">>>>> [RADIO] Uplink successfully sent.");
+}
 
-    // 6. Business Logic Evaluation
-    if (validRead) {
-        Serial.print("Measured Distance: ");
-        Serial.print(distance);
-        Serial.println(" mm");
+void setup() {
+    Serial.begin(115200);
+    sensorSerial.begin(9600);
+    goToSleep(2000U);
+    
+    Serial.println("==========================================");
+    Serial.println("   TELEMETRY NODE: VOLATILE RESET STATE   ");
+    Serial.println("==========================================");
+    Serial.println("Notice: Hitting the RST button forces an instant uplink.");
+}
 
-        if (distance >= 1050) {
-            Serial.println("Decision: Distance >= 1050mm (Tank treated as Empty). Skip radio wake.");
-        } else if (distance < 900) {
-            Serial.println("Decision: Distance < 900mm (Filling Up). LoRaWAN Wake-up Required!");
-        } else {
-            Serial.println("Decision: Mid-zone. System will enter next deep sleep cycle.");
-        }
+void loop() {
+    Serial.println("\n--- Core Wake Cycle ---");
+
+    float currentDistance = readSensorDistance();
+
+    if (currentDistance < 0) {
+        Serial.println("Telemetry Error: Sensor frame timeout.");
     } else {
-        Serial.println("Error: No valid hardware data frame received within timeout window.");
+        Serial.print("Current Reading: "); Serial.print(currentDistance, 3); Serial.println(" m");
+
+        bool firstRun = (lastSentDistance < 0);
+        float delta = abs(currentDistance - lastSentDistance);
+
+        if (firstRun) {
+            Serial.println("Status: Initial boot / Reset caught. Syncing baseline...");
+            fakeLoraTransmit(currentDistance);
+            lastSentDistance = currentDistance;
+        } 
+        else if (delta >= SIGNIFICANT_CHANGE_THRESHOLD) {
+            Serial.print("Status: Delta ("); 
+            Serial.print(delta, 3); 
+            Serial.println(" m) triggers update!");
+            fakeLoraTransmit(currentDistance);
+            lastSentDistance = currentDistance;
+        } 
+        else {
+            Serial.print("Status: Stable. Delta ("); 
+            Serial.print(delta, 3); 
+            Serial.println(" m) stable. Skipping.");
+        }
     }
 
-    Serial.println("Waiting 10 seconds for next cycle...");
-    delay(10000);
+    Serial.println("Cycle complete. Suspending core execution...");
+    Serial.flush();
+    
+    // Call the isolated low-power management function
+    goToSleep(TESTING_INTERVAL_MS);
 }

@@ -2,8 +2,17 @@
 
 #include <Arduino.h>
 
+enum class LoraTransmitResult : uint8_t {
+	Success,
+	RetryableFailure,
+	FatalFailure,
+};
+
 /**
- * @brief Transmit distance reading over LoRa radio
+ * @brief Transmit distance reading over LoRaWAN.
+ *
+ * Uses OTAA join credentials from build flags and performs a single send attempt.
  * @param distance Distance in meters to transmit
+ * @return Transmission outcome, including whether failure is retryable.
  */
-void loraTransmit(float distance);
+LoraTransmitResult loraTransmit(float distance);

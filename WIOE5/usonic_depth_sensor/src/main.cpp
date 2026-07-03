@@ -16,6 +16,14 @@
 #define SIGNIFICANT_CHANGE_THRESHOLD 0.05f // 5 cm
 #endif
 
+#ifndef LORAWAN_MAX_RETRIES
+#define LORAWAN_MAX_RETRIES 3
+#endif
+
+#ifndef LORAWAN_RETRY_DELAY_MS
+#define LORAWAN_RETRY_DELAY_MS 2000UL
+#endif
+
 // Globals (Wiped on battery disconnect or physical RST press)
 float lastSentDistance = -1.0;
 uint32_t lastSentMillis = 0;
@@ -34,6 +42,32 @@ void setWakeLedState(bool isAwake) {
 #else
     (void)isAwake;
 #endif
+}
+
+bool loraTransmitWithRetries(float distance) {
+    for (uint8_t attempt = 1; attempt <= LORAWAN_MAX_RETRIES; ++attempt) {
+        Serial.print("[LoRaWAN] Uplink attempt ");
+        Serial.print(attempt);
+        Serial.print("/");
+        Serial.println(LORAWAN_MAX_RETRIES);
+
+        const LoraTransmitResult result = loraTransmit(distance);
+        if (result == LoraTransmitResult::Success) {
+            return true;
+        }
+
+        if (result == LoraTransmitResult::FatalFailure) {
+            Serial.println("[LoRaWAN] Fatal transmit failure (configuration/setup). Not retrying this cycle.");
+            return false;
+        }
+
+        if (attempt < LORAWAN_MAX_RETRIES) {
+            delay(LORAWAN_RETRY_DELAY_MS);
+        }
+    }
+
+    Serial.println("[LoRaWAN] Retries exhausted; send abandoned for this cycle.");
+    return false;
 }
 } // namespace
 
@@ -66,28 +100,30 @@ void loop() {
         bool firstRun = (lastSentDistance < 0);
         float delta = abs(currentDistance - lastSentDistance);
         bool heartbeatDue = !firstRun && ((uint32_t)(now - lastSentMillis) >= HEARTBEAT_INTERVAL_MS);
+        bool shouldSend = firstRun || (delta >= SIGNIFICANT_CHANGE_THRESHOLD) || heartbeatDue;
 
-        if (firstRun) {
-            Serial.println("Status: Initial boot / Reset caught. Syncing baseline...");
-            loraTransmit(currentDistance);
-            lastSentDistance = currentDistance;
-            lastSentMillis = now;
-        } else if (delta >= SIGNIFICANT_CHANGE_THRESHOLD) {
-            Serial.print("Status: Delta ("); 
-            Serial.print(delta, 3); 
-            Serial.println(" m) triggers update!");
-            loraTransmit(currentDistance);
-            lastSentDistance = currentDistance;
-            lastSentMillis = now;
-        } else if (heartbeatDue) {
-            Serial.println("Status: Heartbeat interval elapsed. Sending keep-alive update.");
-            loraTransmit(currentDistance);
-            lastSentDistance = currentDistance;
-            lastSentMillis = now;
-        } else {
-            Serial.print("Status: Stable. Delta ("); 
-            Serial.print(delta, 3); 
+        if (!shouldSend) {
+            Serial.print("Status: Stable. Delta (");
+            Serial.print(delta, 3);
             Serial.println(" m) stable. Skipping.");
+        } else {
+            if (firstRun) {
+                Serial.println("Status: Initial boot / Reset caught. Syncing baseline...");
+            } else if (delta >= SIGNIFICANT_CHANGE_THRESHOLD) {
+                Serial.print("Status: Delta (");
+                Serial.print(delta, 3);
+                Serial.println(" m) triggers update!");
+            } else {
+                Serial.println("Status: Heartbeat interval elapsed. Sending keep-alive update.");
+            }
+
+            const bool sent = loraTransmitWithRetries(currentDistance);
+            if (sent) {
+                lastSentDistance = currentDistance;
+                lastSentMillis = now;
+            } else {
+                Serial.println("Status: Transmission failed after retries. Baseline preserved for next wake cycle.");
+            }
         }
     }
 

@@ -2,6 +2,7 @@
 #include "low_power.h"
 #include "sensor.h"
 #include "lora.h"
+#include "battery.h"
 
 // Telemetry Timing & Sensitivity Settings
 #ifndef WAKE_INTERVAL_MS
@@ -24,6 +25,10 @@
 #define LORAWAN_RETRY_DELAY_MS 2000UL
 #endif
 
+#ifndef PAYLOAD_VERSION
+#define PAYLOAD_VERSION 3
+#endif
+
 // Globals (Wiped on battery disconnect or physical RST press)
 float lastSentDistance = -1.0;
 uint32_t lastSentMillis = 0;
@@ -44,13 +49,18 @@ void setWakeLedState(bool isAwake) {
 #endif
 }
 
-bool loraTransmitWithRetries(float distance) {
-    char payload[16];
-    const int payloadLen = snprintf(payload, sizeof(payload), "%.3f", distance);
-    if (payloadLen <= 0) {
-        Serial.println("[LoRaWAN] Failed to build distance payload.");
-        return false;
-    }
+bool loraTransmitWithRetries(float distance, uint16_t voltageMv) {
+    const uint16_t rangeMm = static_cast<uint16_t>((distance * 1000.0f) + 0.5f);
+    const uint16_t bootCount = 0;
+
+    uint8_t payload[7];
+    payload[0] = PAYLOAD_VERSION;
+    payload[1] = highByte(rangeMm);
+    payload[2] = lowByte(rangeMm);
+    payload[3] = highByte(voltageMv);
+    payload[4] = lowByte(voltageMv);
+    payload[5] = highByte(bootCount);
+    payload[6] = lowByte(bootCount);
 
     for (uint8_t attempt = 1; attempt <= LORAWAN_MAX_RETRIES; ++attempt) {
         Serial.print("[LoRaWAN] Uplink attempt ");
@@ -59,8 +69,8 @@ bool loraTransmitWithRetries(float distance) {
         Serial.println(LORAWAN_MAX_RETRIES);
 
         const LoraTransmitResult result = loraTransmit(
-            reinterpret_cast<const uint8_t *>(payload),
-            static_cast<size_t>(payloadLen));
+            payload,
+            sizeof(payload));
         if (result == LoraTransmitResult::Success) {
             return true;
         }
@@ -96,6 +106,11 @@ void loop() {
     setWakeLedState(true);
     Serial.println("\n--- Core Wake Cycle ---");
 
+    const uint16_t batteryMv = measureBatteryVoltageMv();
+    Serial.print("[Power] Measured voltage: ");
+    Serial.print(batteryMv);
+    Serial.println(" mV");
+
     float currentDistance = readSensorDistance();
 
     if (currentDistance < 0) {
@@ -126,7 +141,7 @@ void loop() {
                 Serial.println("Status: Heartbeat interval elapsed. Sending keep-alive update.");
             }
 
-            const bool sent = loraTransmitWithRetries(currentDistance);
+            const bool sent = loraTransmitWithRetries(currentDistance, batteryMv);
             if (sent) {
                 lastSentDistance = currentDistance;
                 lastSentMillis = now;

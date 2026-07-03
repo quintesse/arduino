@@ -33,6 +33,7 @@
 float lastSentDistance = -1.0;
 uint32_t lastSentMillis = 0;
 bool lowVoltageAlertLatched = false;
+uint16_t wakeBootCount = 0;
 
 namespace {
 bool wakeLedReady = false;
@@ -50,9 +51,8 @@ void setWakeLedState(bool isAwake) {
 #endif
 }
 
-bool loraTransmitWithRetries(float distance, uint16_t voltageMv) {
+bool loraTransmitWithRetries(float distance, uint16_t voltageMv, uint16_t bootCount) {
     const uint16_t rangeMm = static_cast<uint16_t>((distance * 1000.0f) + 0.5f);
-    const uint16_t bootCount = 0;
 
     uint8_t payload[7];
     payload[0] = PAYLOAD_VERSION;
@@ -85,7 +85,11 @@ void setup() {
 
 void loop() {
     setWakeLedState(true);
+    ++wakeBootCount;
+
     Serial.println("\n--- Core Wake Cycle ---");
+    Serial.print("[Boot] Wake count (volatile): ");
+    Serial.println(wakeBootCount);
 
     const uint16_t batteryMv = measureBatteryVoltageMv();
     Serial.print("[Power] Measured voltage: ");
@@ -148,7 +152,7 @@ void loop() {
                 Serial.println("Status: Heartbeat interval elapsed. Sending keep-alive update.");
             }
 
-            const bool sent = loraTransmitWithRetries(currentDistance, batteryMv);
+            const bool sent = loraTransmitWithRetries(currentDistance, batteryMv, wakeBootCount);
             if (sent) {
                 lastSentDistance = currentDistance;
                 lastSentMillis = now;

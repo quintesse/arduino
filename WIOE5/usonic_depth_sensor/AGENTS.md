@@ -49,7 +49,7 @@ The payload is exactly 7 bytes, packed in big-endian byte order:
 1. **Payload Version:** 1 byte (currently hardcoded to `3`).
 2. **Range:** 2 bytes (`uint16_t` in millimeters). Meters are converted to mm and rounded to the nearest integer before packing.
 3. **Battery Voltage:** 2 bytes (`uint16_t` in millivolts). Derived from the internal ADC monitoring the rail post-MCP1700 regulator. *(Currently a 0 mV placeholder)*.
-4. **Boot Count:** 2 bytes (`uint16_t` tracking system resets). *(Currently a 0 placeholder)*.
+4. **Boot Count:** 2 bytes (`uint16_t` tracking wake cycles in volatile SRAM). Incremented once per wake cycle; resets on physical reset or power loss.
 
 ---
 

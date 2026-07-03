@@ -52,6 +52,7 @@ void setup() {
   pinMode(pinC, OUTPUT);
   setLights(false);
 
+  /*
   WiFi.begin(ssid, password);
   while (WiFi.status() != WL_CONNECTED) {
     digitalWrite(pinB, HIGH);
@@ -68,6 +69,7 @@ void setup() {
   server.on("/", handleRoot);
   server.on("/toggle", handleToggle);
   server.begin();
+  */
 
   setLights(false);
   lightsActive = startLightsActive;
@@ -75,7 +77,7 @@ void setup() {
 }
 
 void loop() {
-  server.handleClient();
+  //server.handleClient();
 
   unsigned long currentMillis = millis();
   if (lightsActive && (currentMillis - startMillis) >= 500) {

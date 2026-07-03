@@ -3,12 +3,22 @@
 #include "sensor.h"
 #include "lora.h"
 
-// 2. Telemetry Timing & Sensitivity Settings
-const uint32_t TESTING_INTERVAL_MS = 15000;      // Wake interval in milliseconds
-const float SIGNIFICANT_CHANGE_THRESHOLD = 0.05;   // 5 centimeters threshold
+// Telemetry Timing & Sensitivity Settings
+#ifndef WAKE_INTERVAL_MS
+#define WAKE_INTERVAL_MS 24 * 60 * 60 * 1000UL // 24 hours
+#endif
 
-// 3. Volatile baseline (Wiped on battery disconnect or physical RST press)
+#ifndef HEARTBEAT_INTERVAL_MS
+#define HEARTBEAT_INTERVAL_MS 2592000000UL // 30 days
+#endif
+
+#ifndef SIGNIFICANT_CHANGE_THRESHOLD
+#define SIGNIFICANT_CHANGE_THRESHOLD 0.05f // 5 cm
+#endif
+
+// Globals (Wiped on battery disconnect or physical RST press)
 float lastSentDistance = -1.0;
+uint32_t lastSentMillis = 0;
 
 void setup() {
     Serial.begin(115200);
@@ -29,24 +39,33 @@ void loop() {
     if (currentDistance < 0) {
         Serial.println("Telemetry Error: Sensor frame timeout.");
     } else {
-        Serial.print("Current Reading: "); Serial.print(currentDistance, 3); Serial.println(" m");
+        Serial.print("Current Reading: ");
+        Serial.print(currentDistance, 3);
+        Serial.println(" m");
 
+        uint32_t now = millis();
         bool firstRun = (lastSentDistance < 0);
         float delta = abs(currentDistance - lastSentDistance);
+        bool heartbeatDue = !firstRun && ((uint32_t)(now - lastSentMillis) >= HEARTBEAT_INTERVAL_MS);
 
         if (firstRun) {
             Serial.println("Status: Initial boot / Reset caught. Syncing baseline...");
             loraTransmit(currentDistance);
             lastSentDistance = currentDistance;
-        } 
-        else if (delta >= SIGNIFICANT_CHANGE_THRESHOLD) {
+            lastSentMillis = now;
+        } else if (delta >= SIGNIFICANT_CHANGE_THRESHOLD) {
             Serial.print("Status: Delta ("); 
             Serial.print(delta, 3); 
             Serial.println(" m) triggers update!");
             loraTransmit(currentDistance);
             lastSentDistance = currentDistance;
-        } 
-        else {
+            lastSentMillis = now;
+        } else if (heartbeatDue) {
+            Serial.println("Status: Heartbeat interval elapsed. Sending keep-alive update.");
+            loraTransmit(currentDistance);
+            lastSentDistance = currentDistance;
+            lastSentMillis = now;
+        } else {
             Serial.print("Status: Stable. Delta ("); 
             Serial.print(delta, 3); 
             Serial.println(" m) stable. Skipping.");
@@ -57,5 +76,5 @@ void loop() {
     Serial.flush();
     
     // Call the isolated low-power management function
-    goToSleep(TESTING_INTERVAL_MS);
+    goToSleep(WAKE_INTERVAL_MS);
 }

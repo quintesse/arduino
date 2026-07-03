@@ -23,6 +23,10 @@
 #define TTN_APP_KEY "00000000000000000000000000000000"
 #endif
 
+#ifndef TTN_NWK_KEY
+#define TTN_NWK_KEY ""
+#endif
+
 #ifndef TTN_DEV_EUI
 #define TTN_DEV_EUI ""
 #endif
@@ -47,6 +51,10 @@ bool isAllZeroHex(const char *value) {
 
 bool hasValidTtnCredentials() {
     return !isAllZeroHex(TTN_APP_EUI) && !isAllZeroHex(TTN_APP_KEY);
+}
+
+bool hasExplicitTtnNetworkKey() {
+    return !isAllZeroHex(TTN_NWK_KEY);
 }
 
 bool ensureModemInitialized() {
@@ -76,6 +84,11 @@ bool ensureJoinedToNetwork() {
     }
 
     Serial.println("[LoRaWAN] Joining network (OTAA)...");
+
+    if (hasExplicitTtnNetworkKey() && !modem.setNwkKey(TTN_NWK_KEY)) {
+        Serial.println("[LoRaWAN] Failed to configure TTN_NWK_KEY.");
+        return false;
+    }
 
     bool joined = false;
     if (TTN_DEV_EUI[0] != '\0' && !isAllZeroHex(TTN_DEV_EUI)) {

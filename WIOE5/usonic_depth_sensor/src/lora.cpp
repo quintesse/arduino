@@ -108,11 +108,9 @@ bool ensureJoinedToNetwork() {
 }
 } // namespace
 
-LoraTransmitResult loraTransmit(float distance) {
-    char payload[16];
-    const int payloadLen = snprintf(payload, sizeof(payload), "%.3f", distance);
-    if (payloadLen <= 0) {
-        Serial.println("[LoRaWAN] Failed to build payload.");
+LoraTransmitResult loraTransmit(const uint8_t *payload, size_t payloadLen) {
+    if (payload == nullptr || payloadLen == 0U) {
+        Serial.println("[LoRaWAN] Payload is empty.");
         return LoraTransmitResult::FatalFailure;
     }
 
@@ -128,13 +126,13 @@ LoraTransmitResult loraTransmit(float distance) {
     }
 
     modem.beginPacket();
-    modem.write(reinterpret_cast<const uint8_t *>(payload), static_cast<size_t>(payloadLen));
+    modem.write(payload, payloadLen);
     const int sent = modem.endPacket(LORAWAN_CONFIRMED_UPLINK != 0);
 
-    if (sent == payloadLen) {
-        Serial.print("[LoRaWAN] Uplink sent successfully: ");
-        Serial.print(payload);
-        Serial.println(" m");
+    if (sent == static_cast<int>(payloadLen)) {
+        Serial.print("[LoRaWAN] Uplink sent successfully (");
+        Serial.print(payloadLen);
+        Serial.println(" bytes).");
         return LoraTransmitResult::Success;
     }
 

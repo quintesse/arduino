@@ -45,13 +45,22 @@ void setWakeLedState(bool isAwake) {
 }
 
 bool loraTransmitWithRetries(float distance) {
+    char payload[16];
+    const int payloadLen = snprintf(payload, sizeof(payload), "%.3f", distance);
+    if (payloadLen <= 0) {
+        Serial.println("[LoRaWAN] Failed to build distance payload.");
+        return false;
+    }
+
     for (uint8_t attempt = 1; attempt <= LORAWAN_MAX_RETRIES; ++attempt) {
         Serial.print("[LoRaWAN] Uplink attempt ");
         Serial.print(attempt);
         Serial.print("/");
         Serial.println(LORAWAN_MAX_RETRIES);
 
-        const LoraTransmitResult result = loraTransmit(distance);
+        const LoraTransmitResult result = loraTransmit(
+            reinterpret_cast<const uint8_t *>(payload),
+            static_cast<size_t>(payloadLen));
         if (result == LoraTransmitResult::Success) {
             return true;
         }

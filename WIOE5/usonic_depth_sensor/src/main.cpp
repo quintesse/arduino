@@ -20,18 +20,37 @@
 float lastSentDistance = -1.0;
 uint32_t lastSentMillis = 0;
 
+namespace {
+bool wakeLedReady = false;
+
+void setWakeLedState(bool isAwake) {
+#if defined(LED_BUILTIN)
+    if (!wakeLedReady) {
+        pinMode(LED_BUILTIN, OUTPUT);
+        wakeLedReady = true;
+    }
+
+    digitalWrite(LED_BUILTIN, isAwake ? LOW : HIGH);
+#else
+    (void)isAwake;
+#endif
+}
+} // namespace
+
 void setup() {
+    setWakeLedState(true);
     Serial.begin(115200);
     initializeSensor();
     goToSleep(2000U);
     
-    Serial.println("==========================================");
-    Serial.println("   TELEMETRY NODE: VOLATILE RESET STATE   ");
-    Serial.println("==========================================");
+    Serial.println("==============================================");
+    Serial.println("   LORA ENABLED DEPTH SENSOR TELEMETRY UNIT   ");
+    Serial.println("==============================================");
     Serial.println("Notice: Hitting the RST button forces an instant uplink.");
 }
 
 void loop() {
+    setWakeLedState(true);
     Serial.println("\n--- Core Wake Cycle ---");
 
     float currentDistance = readSensorDistance();
@@ -75,6 +94,7 @@ void loop() {
     Serial.println("Cycle complete. Suspending core execution...");
     Serial.flush();
     
-    // Call the isolated low-power management function
+    // We did our job, we can go back to sleep
+    setWakeLedState(false);
     goToSleep(WAKE_INTERVAL_MS);
 }

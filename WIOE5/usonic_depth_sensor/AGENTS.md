@@ -29,6 +29,8 @@ Firmware for a custom, ultra-low-power wastewater telemetry node deployed in Bia
 * **First Run / Volatile Diagnostic:** Triggered immediately upon initial power-on or manual reset.
 * **Significant Delta Change:** Triggered if the measured depth shifts by $\ge 0.05\text{ m}$ ($5\text{ cm}$) compared to the last successfully sent reading.
 * **Heartbeat Timeout:** Triggered if a fixed 30-day heartbeat interval has elapsed without an update.
+* **Low Voltage Alert (One-Shot):** Triggered once when measured battery voltage drops to or below `LOW_VOLTAGE_TRIGGER_MV`. To prevent re-trigger spam due to ADC jitter near the threshold, this alert is latched and only re-armed after voltage recovers above `LOW_VOLTAGE_TRIGGER_MV + LOW_VOLTAGE_RECOVERY_HYSTERESIS_MV`.
+* **Battery Voltage Calibration:** `measureBatteryVoltageMv()` applies a configurable `BATTERY_VREF_CALIBRATION_GAIN` to the VREFINT-derived rail reading so the reported voltage can be aligned to the measured 3.3 V/USB baseline.
 
 
 * **LoRaWAN Retry Logic:**

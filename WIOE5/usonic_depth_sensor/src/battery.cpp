@@ -11,6 +11,10 @@ namespace {
 #define BATTERY_VREF_MV 3000U
 #endif
 
+#ifndef BATTERY_VREF_CALIBRATION_GAIN
+#define BATTERY_VREF_CALIBRATION_GAIN 1.0831f
+#endif
+
 #ifndef BATTERY_DIVIDER_RATIO
 #define BATTERY_DIVIDER_RATIO 2.0f
 #endif
@@ -47,8 +51,10 @@ uint16_t estimateRailVoltageMv() {
         return 0U;
     }
 
-    const uint32_t railMv = (static_cast<uint32_t>(BATTERY_VREF_MV) * static_cast<uint32_t>(vrefintCal)) / rawVref;
-    return static_cast<uint16_t>(railMv);
+    const float railMv = (static_cast<float>(BATTERY_VREF_MV) * static_cast<float>(vrefintCal)) /
+                         static_cast<float>(rawVref);
+    const float calibratedRailMv = railMv * BATTERY_VREF_CALIBRATION_GAIN;
+    return static_cast<uint16_t>(calibratedRailMv + 0.5f);
 #else
     return 0U;
 #endif

@@ -17,12 +17,12 @@
 #define SIGNIFICANT_CHANGE_THRESHOLD 0.05f // 5 cm
 #endif
 
-#ifndef LORAWAN_MAX_RETRIES
-#define LORAWAN_MAX_RETRIES 3
+#ifndef LOW_VOLTAGE_TRIGGER_MV
+#define LOW_VOLTAGE_TRIGGER_MV 3200U
 #endif
 
-#ifndef LORAWAN_RETRY_DELAY_MS
-#define LORAWAN_RETRY_DELAY_MS 2000UL
+#ifndef LOW_VOLTAGE_RECOVERY_HYSTERESIS_MV
+#define LOW_VOLTAGE_RECOVERY_HYSTERESIS_MV 100U
 #endif
 
 #ifndef PAYLOAD_VERSION
@@ -32,6 +32,7 @@
 // Globals (Wiped on battery disconnect or physical RST press)
 float lastSentDistance = -1.0;
 uint32_t lastSentMillis = 0;
+bool lowVoltageAlertLatched = false;
 
 namespace {
 bool wakeLedReady = false;
@@ -62,31 +63,11 @@ bool loraTransmitWithRetries(float distance, uint16_t voltageMv) {
     payload[5] = highByte(bootCount);
     payload[6] = lowByte(bootCount);
 
-    for (uint8_t attempt = 1; attempt <= LORAWAN_MAX_RETRIES; ++attempt) {
-        Serial.print("[LoRaWAN] Uplink attempt ");
-        Serial.print(attempt);
-        Serial.print("/");
-        Serial.println(LORAWAN_MAX_RETRIES);
-
-        const LoraTransmitResult result = loraTransmit(
-            payload,
-            sizeof(payload));
-        if (result == LoraTransmitResult::Success) {
-            return true;
-        }
-
-        if (result == LoraTransmitResult::FatalFailure) {
-            Serial.println("[LoRaWAN] Fatal transmit failure (configuration/setup). Not retrying this cycle.");
-            return false;
-        }
-
-        if (attempt < LORAWAN_MAX_RETRIES) {
-            delay(LORAWAN_RETRY_DELAY_MS);
-        }
+    const bool sent = loraTransmit(payload, sizeof(payload));
+    if (!sent) {
+        Serial.println("[LoRaWAN] Send failed; retries exhausted or join not available in this cycle.");
     }
-
-    Serial.println("[LoRaWAN] Retries exhausted; send abandoned for this cycle.");
-    return false;
+    return sent;
 }
 } // namespace
 
@@ -111,6 +92,23 @@ void loop() {
     Serial.print(batteryMv);
     Serial.println(" mV");
 
+    const bool lowVoltageFeatureEnabled = (LOW_VOLTAGE_TRIGGER_MV > 0U);
+    if (lowVoltageFeatureEnabled && lowVoltageAlertLatched) {
+        const uint32_t recoveryMv = static_cast<uint32_t>(LOW_VOLTAGE_TRIGGER_MV) +
+                                    static_cast<uint32_t>(LOW_VOLTAGE_RECOVERY_HYSTERESIS_MV);
+        if (batteryMv >= recoveryMv) {
+            lowVoltageAlertLatched = false;
+            Serial.print("[Power] Low-voltage alert re-armed after recovery to ");
+            Serial.print(batteryMv);
+            Serial.println(" mV.");
+        }
+    }
+
+    const bool lowVoltageTrigger = lowVoltageFeatureEnabled &&
+                                   !lowVoltageAlertLatched &&
+                                   (batteryMv > 0U) &&
+                                   (batteryMv <= LOW_VOLTAGE_TRIGGER_MV);
+
     float currentDistance = readSensorDistance();
 
     if (currentDistance < 0) {
@@ -124,7 +122,10 @@ void loop() {
         bool firstRun = (lastSentDistance < 0);
         float delta = abs(currentDistance - lastSentDistance);
         bool heartbeatDue = !firstRun && ((uint32_t)(now - lastSentMillis) >= HEARTBEAT_INTERVAL_MS);
-        bool shouldSend = firstRun || (delta >= SIGNIFICANT_CHANGE_THRESHOLD) || heartbeatDue;
+        bool shouldSend = firstRun ||
+                  (delta >= SIGNIFICANT_CHANGE_THRESHOLD) ||
+                  heartbeatDue ||
+                  lowVoltageTrigger;
 
         if (!shouldSend) {
             Serial.print("Status: Stable. Delta (");
@@ -137,6 +138,12 @@ void loop() {
                 Serial.print("Status: Delta (");
                 Serial.print(delta, 3);
                 Serial.println(" m) triggers update!");
+            } else if (lowVoltageTrigger) {
+                Serial.print("Status: Low voltage alert threshold crossed (");
+                Serial.print(batteryMv);
+                Serial.print(" mV <= ");
+                Serial.print(LOW_VOLTAGE_TRIGGER_MV);
+                Serial.println(" mV). Sending one-shot alert.");
             } else {
                 Serial.println("Status: Heartbeat interval elapsed. Sending keep-alive update.");
             }
@@ -145,6 +152,9 @@ void loop() {
             if (sent) {
                 lastSentDistance = currentDistance;
                 lastSentMillis = now;
+                if (lowVoltageTrigger) {
+                    lowVoltageAlertLatched = true;
+                }
             } else {
                 Serial.println("Status: Transmission failed after retries. Baseline preserved for next wake cycle.");
             }

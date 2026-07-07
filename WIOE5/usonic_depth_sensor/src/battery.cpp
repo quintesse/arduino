@@ -12,7 +12,7 @@ namespace {
 #endif
 
 #ifndef BATTERY_VREF_CALIBRATION_GAIN
-#define BATTERY_VREF_CALIBRATION_GAIN 1.0831f
+#define BATTERY_VREF_CALIBRATION_GAIN 1.0f
 #endif
 
 #ifndef BATTERY_DIVIDER_RATIO
@@ -28,6 +28,9 @@ namespace {
 #endif
 
 uint32_t sampleAdcAverage(uint32_t pin, uint8_t sampleCount) {
+    // Throw away the first conversion after switching channels so the sample-and-hold can settle.
+    (void)analogRead(pin);
+
     uint32_t sum = 0U;
     for (uint8_t i = 0; i < sampleCount; ++i) {
         sum += static_cast<uint32_t>(analogRead(pin));

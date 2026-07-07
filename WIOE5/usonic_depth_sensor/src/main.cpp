@@ -29,6 +29,10 @@
 #define PAYLOAD_VERSION 3
 #endif
 
+#ifndef DISABLE_SLEEP_FOR_CALIBRATION
+#define DISABLE_SLEEP_FOR_CALIBRATION 0
+#endif
+
 // Globals (Wiped on battery disconnect or physical RST press)
 float lastSentDistance = -1.0;
 uint32_t lastSentMillis = 0;
@@ -37,6 +41,14 @@ uint16_t wakeBootCount = 0;
 
 namespace {
 bool wakeLedReady = false;
+
+void sleepOrCalibrationWait(uint32_t sleepMs) {
+#if DISABLE_SLEEP_FOR_CALIBRATION
+    delay(sleepMs);
+#else
+    goToSleep(sleepMs);
+#endif
+}
 
 void setWakeLedState(bool isAwake) {
 #if defined(LED_BUILTIN)
@@ -75,12 +87,15 @@ void setup() {
     setWakeLedState(true);
     Serial.begin(115200);
     initializeSensor();
-    goToSleep(2000U);
+    sleepOrCalibrationWait(2000U);
     
     Serial.println("==============================================");
     Serial.println("   LORA ENABLED DEPTH SENSOR TELEMETRY UNIT   ");
     Serial.println("==============================================");
     Serial.println("Notice: Hitting the RST button forces an instant uplink.");
+#if DISABLE_SLEEP_FOR_CALIBRATION
+    Serial.println("[Power] Calibration mode active: STOP2 sleep is disabled.");
+#endif
 }
 
 void loop() {
@@ -170,5 +185,5 @@ void loop() {
     
     // We did our job, we can go back to sleep
     setWakeLedState(false);
-    goToSleep(WAKE_INTERVAL_MS);
+    sleepOrCalibrationWait(WAKE_INTERVAL_MS);
 }

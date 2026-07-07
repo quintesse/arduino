@@ -49,6 +49,9 @@ bool ensureRtcWakeupReady() {
         return false;
     }
 
+    HAL_NVIC_SetPriority(RTC_WKUP_IRQn, 0, 0);
+    HAL_NVIC_EnableIRQ(RTC_WKUP_IRQn);
+
     rtcWakeReady = true;
     return true;
 }
@@ -84,11 +87,12 @@ void goToSleep(uint32_t timeoutMs) {
         return;
     }
 
-    Serial.flush();
+    Serial.end();
     HAL_SuspendTick();
+    __HAL_PWR_CLEAR_FLAG(PWR_FLAG_WU);
     HAL_PWREx_EnterSTOP2Mode(PWR_STOPENTRY_WFI);
-    HAL_ResumeTick();
 
     SystemClock_Config();
+    HAL_ResumeTick();
     HAL_RTCEx_DeactivateWakeUpTimer(&rtcWakeHandle);
 }

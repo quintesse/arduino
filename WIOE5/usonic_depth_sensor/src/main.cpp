@@ -42,6 +42,9 @@ uint16_t wakeBootCount = 0;
 namespace {
 bool wakeLedReady = false;
 
+constexpr uint32_t SENSOR_BOOT_PROBE_TIMEOUT_MS = 1000U;
+constexpr uint32_t LED_ERROR_BLINK_MS = 100U;
+
 void sleepOrCalibrationWait(uint32_t sleepMs) {
 #if DISABLE_SLEEP_FOR_CALIBRATION
     delay(sleepMs);
@@ -61,6 +64,20 @@ void setWakeLedState(bool isAwake) {
 #else
     (void)isAwake;
 #endif
+}
+
+void signalFatalSensorError() {
+    Serial.println("[Sensor] Missing or unresponsive sensor at boot. Halting in error state.");
+    while (true) {
+#if defined(LED_BUILTIN)
+        setWakeLedState(true);
+        delay(LED_ERROR_BLINK_MS);
+        setWakeLedState(false);
+        delay(LED_ERROR_BLINK_MS);
+#else
+        delay(2U * LED_ERROR_BLINK_MS);
+#endif
+    }
 }
 
 bool loraTransmitWithRetries(float distance, uint16_t voltageMv, uint16_t bootCount) {
@@ -87,6 +104,15 @@ void setup() {
     setWakeLedState(true);
     Serial.begin(115200);
     initializeSensor();
+
+#if SENSOR_FAKE_MODE
+    Serial.println("[Sensor] Fake sensor mode active. Distance fixed at 1.000 m.");
+#else
+    if (!isSensorConnected(SENSOR_BOOT_PROBE_TIMEOUT_MS)) {
+        signalFatalSensorError();
+    }
+#endif
+
     sleepOrCalibrationWait(2000U);
     
     Serial.println("==============================================");
